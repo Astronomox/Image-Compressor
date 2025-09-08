@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Compressor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 1.5rem;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4 sm:p-6">
+
+    <div class="container w-full">
+        <h1 class="text-2xl sm:text-3xl font-bold text-center text-gray-800 mb-4 sm:mb-6">Image Compressor</h1>
+        <p class="text-center text-sm sm:text-base text-gray-600 mb-6 sm:mb-8">
+            Select an image to compress it to **100KB** while retaining the best possible quality.
+        </p>
+
+        <div class="flex flex-col items-center space-y-4 sm:space-y-6">
+            <label class="w-full md:w-2/3 lg:w-1/2 p-4 bg-blue-500 hover:bg-blue-600 text-white font-semibold text-center rounded-lg cursor-pointer transition duration-300 ease-in-out shadow-lg">
+                Choose Image
+                <input type="file" id="imageInput" accept="image/*" class="hidden">
+            </label>
+
+            <div id="statusMessage" class="text-center text-sm font-medium text-gray-500 min-h-[2rem]"></div>
+
+            <div id="loading" class="hidden loading-spinner"></div>
+            
+            <div id="previewContainer" class="hidden w-full space-y-4">
+                <h2 class="text-lg sm:text-xl font-bold text-gray-700">Compressed Image</h2>
+                <div class="flex justify-center">
+                    <img id="compressedImage" class="max-w-full h-auto rounded-lg shadow-md border border-gray-200" alt="Compressed Image">
+                </div>
+                <div class="flex flex-col sm:flex-row sm:justify-between items-center space-y-2 sm:space-y-0 text-gray-600 text-sm sm:text-base font-medium">
+                    <span id="originalSize"></span>
+                    <span id="compressedSize"></span>
+                </div>
+                <a id="downloadLink" href="#" download="compressed_image.jpg" class="hidden w-full p-4 text-center bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition duration-300 ease-in-out shadow-lg">
+                    Download
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const statusMessage = document.getElementById('statusMessage');
+        const previewContainer = document.getElementById('previewContainer');
+        const compressedImage = document.getElementById('compressedImage');
+        const originalSizeSpan = document.getElementById('originalSize');
+        const compressedSizeSpan = document.getElementById('compressedSize');
+        const downloadLink = document.getElementById('downloadLink');
+        const loadingSpinner = document.getElementById('loading');
+        
+        const MAX_SIZE_KB = 100;
+        const MAX_QUALITY_JPEG = 0.95;
+        const MIN_QUALITY = 0.1;
+        
+        imageInput.addEventListener('change', handleImageUpload);
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Show loading spinner and hide previous results
+            showLoading();
+            previewContainer.classList.add('hidden');
+            downloadLink.classList.add('hidden');
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const originalSize = file.size / 1024; // in KB
+                    originalSizeSpan.textContent = `Original Size: ${originalSize.toFixed(2)} KB`;
+                    
+                    if (originalSize <= MAX_SIZE_KB) {
+                        statusMessage.textContent = 'Image is already under 100KB. No compression needed.';
+                        compressedImage.src = e.target.result;
+                        compressedSizeSpan.textContent = `Compressed Size: ${originalSize.toFixed(2)} KB`;
+                        previewContainer.classList.remove('hidden');
+                        downloadLink.href = e.target.result;
+                        downloadLink.classList.remove('hidden');
+                        hideLoading();
+                        return;
+                    }
+
+                    // Start compression process
+                    compressImage(img, MAX_SIZE_KB);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function compressImage(img, targetSizeKb) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Set canvas dimensions to match the image
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+
+            let quality = MAX_QUALITY_JPEG;
+            let blob = null;
+            let currentSizeKb = Infinity;
+
+            const compressLoop = () => {
+                // ToBlob default is image/jpeg with a quality of 0.92
+                canvas.toBlob(currentBlob => {
+                    blob = currentBlob;
+                    if (!blob) {
+                        statusMessage.textContent = 'Error: Could not compress image.';
+                        hideLoading();
+                        return;
+                    }
+                    
+                    currentSizeKb = blob.size / 1024;
+
+                    if (currentSizeKb > targetSizeKb && quality > MIN_QUALITY) {
+                        quality -= 0.05; // Decrease quality by 5%
+                        statusMessage.textContent = `Compressing... Current Size: ${currentSizeKb.toFixed(2)} KB. Reducing quality...`;
+                        
+                        // Use a setTimeout to allow the browser to update the UI
+                        setTimeout(compressLoop, 10);
+                    } else {
+                        // Compression complete, either we hit the target or the minimum quality
+                        const compressedSize = blob.size / 1024;
+                        compressedSizeSpan.textContent = `Compressed Size: ${compressedSize.toFixed(2)} KB`;
+
+                        compressedImage.src = URL.createObjectURL(blob);
+                        downloadLink.href = URL.createObjectURL(blob);
+                        downloadLink.classList.remove('hidden');
+                        previewContainer.classList.remove('hidden');
+                        statusMessage.textContent = 'Compression complete!';
+                        hideLoading();
+                    }
+                }, 'image/jpeg', quality);
+            };
+
+            compressLoop();
+        }
+        
+        function showLoading() {
+            loadingSpinner.classList.remove('hidden');
+            statusMessage.textContent = 'Processing image...';
+        }
+        
+        function hideLoading() {
+            loadingSpinner.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
